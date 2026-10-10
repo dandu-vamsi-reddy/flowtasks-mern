@@ -11,7 +11,7 @@ const CreateTask = () => {
   const [description, setDescription] = useState("");
   const [feedbackDate, setFeedbackDate] = useState("");
   const [status, setStatus] = useState("ONGOING");
-  const [assignedTo, setAssignedTo] = useState<number | "">("");
+  const [assignedTo, setAssignedTo] = useState("");
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -68,7 +68,7 @@ const CreateTask = () => {
         description: description.trim(),
         feedback_date: feedbackDate,
         status,
-        ...(assignedTo !== "" ? { assignedTo: Number(assignedTo) } : {}),
+        ...(assignedTo ? { assignedTo } : {}),
       });
 
       toast.success(data?.message || "Task created successfully");
@@ -187,7 +187,7 @@ const CreateTask = () => {
                 <label className="mb-2 block text-sm font-medium text-slate-700">Assign To</label>
                 <select
                   value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) => setAssignedTo(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950"
                   disabled={usersLoading}
                 >

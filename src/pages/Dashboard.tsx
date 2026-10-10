@@ -19,6 +19,7 @@ import {
 } from "../api/api";
 import type { TaskItem, UserSummary } from "../api/api";
 import AiAssistantModal from "../components/AiAssistantModal";
+import DashboardParticles from "../components/DashboardParticles";
 
 interface MetaState {
   total: number;
@@ -62,23 +63,28 @@ const Dashboard = () => {
   const [page, setPage] = useState(1);
   const [showOverdue, setShowOverdue] = useState(false);
   const [meta, setMeta] = useState<MetaState>(initialMeta);
-  const [assignedFilter, setAssignedFilter] = useState<number | "">("");
+  const [assignedFilter, setAssignedFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [feedbackDate, setFeedbackDate] = useState("");
   const [taskStatus, setTaskStatus] = useState("ONGOING");
-  const [assignedTo, setAssignedTo] = useState<number | "">("");
+  const [assignedTo, setAssignedTo] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showDelay, setShowDelay] = useState(false);
   const [delayReason, setDelayReason] = useState("");
   const [delayDate, setDelayDate] = useState("");
-  const [delayTaskId, setDelayTaskId] = useState<number | null>(null);
+  const [delayTaskId, setDelayTaskId] = useState<string | null>(null);
   const [delaying, setDelaying] = useState(false);
   const [menuDir, setMenuDir] = useState<"up" | "down">("down");
-  const [mobileMenuPosition, setMobileMenuPosition] = useState<{ left: number; top?: number; bottom?: number }>({ left: 0 });
+  const [mobileMenuPosition, setMobileMenuPosition] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight?: number;
+  }>({ left: 0 });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
 
@@ -189,7 +195,7 @@ const Dashboard = () => {
       const payload = {
         title: title.trim(), description: description.trim(),
         feedback_date: feedbackDate, status: taskStatus,
-        ...(assignedTo !== "" ? { assignedTo: Number(assignedTo) } : {}),
+        ...(assignedTo ? { assignedTo } : {}),
       };
       if (editingTask) { await updateTask(editingTask.id, payload); toast.success("Task updated successfully"); }
       else { await createTask(payload); toast.success("Task created successfully"); }
@@ -205,7 +211,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleCompleteTask = async (taskId: number) => {
+  const handleCompleteTask = async (taskId: string) => {
     try {
       await completeTask(taskId);
       toast.success("Task completed");
@@ -228,7 +234,7 @@ const Dashboard = () => {
     finally { setDelaying(false); }
   };
 
-  const handleDeleteTask = async (taskId: number) => {
+  const handleDeleteTask = async (taskId: string) => {
     try {
       await deleteTask(taskId);
       toast.success("Task deleted successfully");
@@ -249,15 +255,16 @@ const Dashboard = () => {
 
   return (
     // ── Full viewport height, flex column, no page scroll ──
-    <div className="h-screen flex flex-col overflow-hidden bg-[radial-gradient(circle_at_20%_20%,rgba(199,210,254,0.6),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(147,197,253,0.5),transparent_40%),radial-gradient(circle_at_50%_100%,rgba(224,231,255,0.6),transparent_50%)]">
+    <div className="premium-dashboard relative isolate h-screen flex flex-col overflow-hidden bg-[radial-gradient(circle_at_20%_20%,rgba(199,210,254,0.6),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(147,197,253,0.5),transparent_40%),radial-gradient(circle_at_50%_100%,rgba(224,231,255,0.6),transparent_50%)]">
+      <DashboardParticles />
 
       {/* ── HEADER (fixed height) ── */}
-      <header className="shrink-0 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm z-30">
+      <header className="relative z-10 shrink-0 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm">
         <div className="w-full px-4 sm:px-6">
           <div className="flex items-center justify-between h-14 gap-4">
             {/* Title */}
             <div className="min-w-0">
-              <p className="text-[9px] uppercase tracking-[0.3em] text-slate-400 leading-none">Signed in as {role}.</p>
+              <p className="text-[9px] uppercase tracking-[0.3em] text-slate-400 leading-none">FlowTasks / {role} workspace</p>
               <h1 className="text-base sm:text-xl lg:text-2xl font-semibold text-slate-950 leading-tight truncate">
                 {isAdmin ? "Admin Task Workspace" : "My Tasks"}
               </h1>
@@ -292,7 +299,7 @@ const Dashboard = () => {
               className="sm:hidden p-2 rounded-lg border border-slate-300 bg-white"
               onClick={() => setMobileMenuOpen((v) => !v)}
             >
-              <svg className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenuOpen
                   ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
@@ -329,7 +336,7 @@ const Dashboard = () => {
       </header>
 
       {/* ── MAIN CONTENT (flex-1 = takes all remaining height) ── */}
-      <main className="flex-1 overflow-hidden">
+      <main className="relative z-10 flex-1 overflow-hidden">
         <div className="w-full h-full px-3 sm:px-4 lg:px-6 py-3 flex flex-col gap-2">
 
           {/* ── STATS (shrink-0 = never grows or shrinks) ── */}
@@ -385,7 +392,7 @@ const Dashboard = () => {
                     : (
                       <select
                         value={assignedFilter}
-                        onChange={(e) => { setPage(1); setAssignedFilter(e.target.value ? Number(e.target.value) : ""); }}
+                        onChange={(e) => { setPage(1); setAssignedFilter(e.target.value); }}
                         className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-slate-950 w-full sm:w-[150px]"
                       >
                         <option value="">All Users</option>
@@ -445,8 +452,12 @@ const Dashboard = () => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             const direction = window.innerHeight - rect.bottom < 160 ? "up" : "down";
                             setMenuDir(direction);
+                            const availableHeight = direction === "up"
+                              ? rect.top - 8
+                              : window.innerHeight - rect.bottom - 8;
                             setMobileMenuPosition({
                               left: Math.min(rect.left, window.innerWidth - 164),
+                              maxHeight: Math.max(0, availableHeight),
                               ...(direction === "up"
                                 ? { bottom: window.innerHeight - rect.top + 4 }
                                 : { top: rect.bottom + 4 }),
@@ -461,8 +472,13 @@ const Dashboard = () => {
                           createPortal(
                             <div
                               ref={mobileMenuRef}
-                              style={{ left: mobileMenuPosition.left, top: mobileMenuPosition.top, bottom: mobileMenuPosition.bottom }}
-                              className="fixed z-[100] w-40 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                              style={{
+                                left: mobileMenuPosition.left,
+                                top: mobileMenuPosition.top,
+                                bottom: mobileMenuPosition.bottom,
+                                maxHeight: mobileMenuPosition.maxHeight,
+                              }}
+                              className="fixed z-[100] w-40 touch-pan-y overscroll-y-contain overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg [-webkit-overflow-scrolling:touch]"
                             >
                               {task.status !== "COMPLETED" && (
                                 <button onClick={() => { handleCompleteTask(task.id); setOpenMenuId(null); }}
@@ -610,9 +626,9 @@ const Dashboard = () => {
 
       {/* ── CREATE / EDIT DRAWER ── */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex bg-black/20 backdrop-blur-[2px]">
+        <div className="fixed inset-0 z-50 flex overflow-hidden bg-black/20 backdrop-blur-[2px]">
           <div className="flex-1" onClick={() => { setShowCreate(false); resetTaskForm(); }} />
-          <aside className="h-full min-w-0 w-full max-w-xl overflow-y-auto bg-white p-5 sm:p-8 shadow-2xl">
+          <aside className="h-dvh max-h-dvh min-h-0 min-w-0 w-full max-w-xl shrink-0 touch-pan-y overscroll-y-contain overflow-y-auto bg-white p-5 sm:p-8 shadow-2xl [-webkit-overflow-scrolling:touch]">
             <h2 className="mb-1 text-xl sm:text-2xl font-semibold text-slate-950">
               {editingTask ? "Update Task" : "Create New Task"}
             </h2>
@@ -659,7 +675,7 @@ const Dashboard = () => {
               {isAdmin && (
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">Assign To</label>
-                  <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : "")}
+                  <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-950">
                     <option value="">Select a user</option>
                     {userOptions.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
@@ -682,7 +698,7 @@ const Dashboard = () => {
       {/* ── DELAY MODAL ── */}
       {showDelay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 backdrop-blur-[2px]">
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 sm:max-h-none sm:p-6 shadow-xl">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md touch-pan-y overscroll-y-contain overflow-y-auto rounded-3xl bg-white p-5 sm:max-h-none sm:p-6 shadow-xl [-webkit-overflow-scrolling:touch]">
             <h2 className="mb-4 text-lg sm:text-xl font-semibold text-slate-950">Delay Task</h2>
             <form onSubmit={handleDelayTask} className="space-y-4">
               <div>

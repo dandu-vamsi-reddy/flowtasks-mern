@@ -10,7 +10,7 @@ type LoginResponse = {
   token: string;
   role?: string;
   user?: {
-    id?: number;
+    id?: string;
     role?: string;
     name?: string;
     email?: string;
@@ -18,7 +18,7 @@ type LoginResponse = {
 };
 
 export type UserSummary = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: "ADMIN" | "USER";
@@ -28,7 +28,7 @@ export type UserSummary = {
 };
 
 export type TaskItem = {
-  id: number;
+  id: string;
   title: string;
   description: string;
   status: string;
@@ -36,8 +36,8 @@ export type TaskItem = {
   updated_at?: string;
   feedback_date?: string;
   is_overdue: number;
-  created_by?: number;
-  assigned_to?: number;
+  created_by?: string;
+  assigned_to?: string;
   creator_name?: string;
   assignee_name?: string;
 };
@@ -51,7 +51,7 @@ type RegisterPayload = {
 type RawTask = Record<string, unknown>;
 
 const normalizeTask = (task: RawTask): TaskItem => ({
-  id: Number(task.id ?? 0),
+  id: String(task.id ?? ""),
   title: String(task.title ?? ""),
   description: String(task.description ?? ""),
   status: String(task.status ?? ""),
@@ -59,8 +59,8 @@ const normalizeTask = (task: RawTask): TaskItem => ({
   updated_at: task.updated_at ? String(task.updated_at) : undefined,
   feedback_date: task.feedback_date ? String(task.feedback_date) : undefined,
   is_overdue: Number(task.is_overdue ?? 0),
-  created_by: task.created_by ? Number(task.created_by) : undefined,
-  assigned_to: task.assigned_to ? Number(task.assigned_to) : undefined,
+  created_by: task.created_by ? String(task.created_by) : undefined,
+  assigned_to: task.assigned_to ? String(task.assigned_to) : undefined,
   creator_name: task.creator_name ? String(task.creator_name) : undefined,
   assignee_name: task.assignee_name ? String(task.assignee_name) : undefined,
 });
@@ -92,17 +92,19 @@ export const persistAuthSession = (data: LoginResponse) => {
   localStorage.setItem("token", data.token);
 
   const payload = decodeJwtPayload(data.token);
+  const payloadUserId = payload?.userId ?? payload?.id;
   const userId =
     data.user?.id ??
-    (typeof payload?.userId === "number" ? payload.userId : undefined) ??
-    (typeof payload?.id === "number" ? payload.id : undefined);
+    (typeof payloadUserId === "string" || typeof payloadUserId === "number"
+      ? String(payloadUserId)
+      : undefined);
   const role =
     data.role ??
     data.user?.role ??
     (typeof payload?.role === "string" ? payload.role : undefined);
 
-  if (typeof userId === "number") {
-    localStorage.setItem("userId", String(userId));
+  if (userId) {
+    localStorage.setItem("userId", userId);
   } else {
     localStorage.removeItem("userId");
   }
@@ -121,7 +123,7 @@ export const clearAuthSession = () => {
 };
 
 export const getStoredRole = () => localStorage.getItem("role");
-export const getStoredUserId = () => Number(localStorage.getItem("userId") || 0);
+export const getStoredUserId = () => localStorage.getItem("userId") || "";
 export const isAdminRole = () => getStoredRole()?.toUpperCase() === "ADMIN";
 
 export const registerUser = async (data: RegisterPayload) => {
@@ -151,7 +153,7 @@ export const getUsers = async () => {
       users: Array.isArray(res.data?.users)
         ? (res.data.users as UserSummary[]).map((user) => ({
             ...user,
-            id: Number(user.id),
+            id: String(user.id),
             total_tasks: Number(user.total_tasks ?? 0),
             ongoing_tasks: Number(user.ongoing_tasks ?? 0),
           }))
@@ -162,7 +164,7 @@ export const getUsers = async () => {
   }
 };
 
-export const deleteManagedUser = async (userId: number) => {
+export const deleteManagedUser = async (userId: string) => {
   try {
     const res = await axios.delete(`/auth/users/${userId}`);
     return res.data as { message?: string };
@@ -189,7 +191,7 @@ export const getTasks = async (params: {
   search?: string;
   status?: string;
   filter?: string;
-  assignedTo?: number | "";
+  assignedTo?: string | "";
 }) => {
   try {
     const res = await axios.get("/auth/gettasks", { params });
@@ -214,24 +216,24 @@ export const createTask = async (data: {
   description: string;
   feedback_date: string;
   status?: string;
-  assignedTo?: number;
+  assignedTo?: string;
 }) => {
   try {
     const res = await axios.post("/auth/createtask", data);
-    return res.data as { message?: string; taskId?: number };
+    return res.data as { message?: string; taskId?: string };
   } catch (err) {
     return handleError(err, "Failed to create task");
   }
 };
 
 export const updateTask = async (
-  taskId: number,
+  taskId: string,
   data: {
     title?: string;
     description?: string;
     feedback_date?: string;
     status?: string;
-    assignedTo?: number;
+    assignedTo?: string;
   }
 ) => {
   try {
@@ -242,7 +244,7 @@ export const updateTask = async (
   }
 };
 
-export const completeTask = async (taskId: number) => {
+export const completeTask = async (taskId: string) => {
   try {
     const res = await axios.patch(`/auth/tasks/${taskId}/complete`);
     return res.data as { message?: string };
@@ -252,7 +254,7 @@ export const completeTask = async (taskId: number) => {
 };
 
 export const delayTask = async (
-  taskId: number,
+  taskId: string,
   data: {
     reason: string;
     newDate: string;
@@ -266,7 +268,7 @@ export const delayTask = async (
   }
 };
 
-export const deleteTask = async (taskId: number) => {
+export const deleteTask = async (taskId: string) => {
   try {
     const res = await axios.delete(`/auth/tasks/${taskId}`);
     return res.data as { message?: string };
@@ -275,7 +277,7 @@ export const deleteTask = async (taskId: number) => {
   }
 };
 
-export const getTaskById = async (taskId: number) => {
+export const getTaskById = async (taskId: string) => {
   try {
     const res = await axios.get(`/auth/tasks/${taskId}`);
     return {

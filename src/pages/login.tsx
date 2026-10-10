@@ -7,6 +7,7 @@ const Login = () => {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
     if (localStorage.getItem("token")) {
@@ -15,6 +16,7 @@ const Login = () => {
   }, [navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLoginError("");
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
@@ -22,11 +24,12 @@ const Login = () => {
     e.preventDefault();
 
     if (!form.email.trim() || !form.password.trim()) {
-      toast.error("Email and password are required");
+      setLoginError("Email and password are required");
       return;
     }
 
     try {
+      setLoginError("");
       setLoading(true);
       const data = await loginUser({
         email: form.email.trim(),
@@ -35,9 +38,11 @@ const Login = () => {
 
       persistAuthSession(data);
       toast.success("Login successful");
-      window.location.href = "/dashboard";
+      navigate("/dashboard", { replace: true });
     } catch (err) {
-      toast.error((err as Error).message || "Login failed");
+      const message = err instanceof Error ? err.message : "Login failed";
+      setLoginError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -67,7 +72,16 @@ const Login = () => {
     Demo user login: <span className="font-medium">vamsi@gmail.com</span> / <span className="font-medium">pass: 123456</span>
 </p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+  {loginError && (
+    <div
+      role="alert"
+      className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+    >
+      {loginError}
+    </div>
+  )}
+
+  <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Email</label>
               <input

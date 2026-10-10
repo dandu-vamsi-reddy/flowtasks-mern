@@ -24,7 +24,14 @@ axiosInstance.interceptors.response.use(
       localStorage.removeItem("token");
       localStorage.removeItem("userId");
       localStorage.removeItem("role");
-      window.location.href = "/login";
+
+      const requestUrl = err.config?.url ?? "";
+      const isLoginRequest =
+        requestUrl === "/auth/login" || requestUrl.endsWith("/auth/login");
+
+      if (!isLoginRequest) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(err);
   }

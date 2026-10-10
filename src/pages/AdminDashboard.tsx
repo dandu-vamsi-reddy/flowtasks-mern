@@ -25,7 +25,7 @@ const AdminDashboard = () => {
     const [users, setUsers] = useState<UserSummary[]>([]);
     const [usersLoading, setUsersLoading] = useState(false);
     const [showCreate, setShowCreate] = useState(false);
-    const [assignedTo, setAssignedTo] = useState<number | "">("");
+    const [assignedTo, setAssignedTo] = useState("");
 
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
@@ -94,7 +94,7 @@ const AdminDashboard = () => {
         fetchUsers();
     }, [isAdmin, navigate]);
 
-    const handleDeleteUser = async (userId: number) => {
+    const handleDeleteUser = async (userId: string) => {
         try {
             await deleteManagedUser(userId);
             toast.success("User deleted successfully");
@@ -226,7 +226,7 @@ const AdminDashboard = () => {
                 </section>
             </main>
             {showCreate && (
-                <div className="fixed inset-0 z-50 flex bg-black/20 backdrop-blur-[2px]">
+                <div className="fixed inset-0 z-50 flex overflow-hidden bg-black/20 backdrop-blur-[2px]">
                     <div
                         className="flex-1"
                         onClick={() => {
@@ -238,7 +238,7 @@ const AdminDashboard = () => {
                         }}
                     />
 
-                    <aside className="h-full w-full max-w-xl overflow-y-auto bg-white p-8 shadow-2xl">
+                    <aside className="h-dvh max-h-dvh min-h-0 w-full max-w-xl shrink-0 touch-pan-y overscroll-y-contain overflow-y-auto bg-white p-8 shadow-2xl [-webkit-overflow-scrolling:touch]">
                         <h2 className="mb-2 text-2xl font-semibold text-slate-950">
                             Create New Task
                         </h2>
@@ -304,7 +304,7 @@ const AdminDashboard = () => {
                                     <label className="mb-2 block text-sm font-medium text-slate-700">Assign To</label>
                                     <select
                                         value={assignedTo}
-                                        onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : "")}
+                                        onChange={(e) => setAssignedTo(e.target.value)}
                                         className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950"
                                     >
                                         <option value="">Select a user</option>

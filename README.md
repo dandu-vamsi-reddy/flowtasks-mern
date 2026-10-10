@@ -1,15 +1,31 @@
-# FlowTasks â€“ Frontend
+# FlowTasks – MERN Stack Task Management Application
 
-## Overview
-FlowTasks is a full-stack task accountability system that helps users manage tasks, track delays, and monitor overdue work.
+## Project Description
 
-This frontend application provides a responsive dashboard where users can create tasks, delay tasks with a reason, update them, and mark them as completed.  
-The application communicates with a Node.js and MySQL backend API.
+FlowTasks is a task accountability and management application that helps users organize tasks, track delays, monitor overdue work, and manage task completion.
 
----
+The application provides a dashboard for task management, user authentication, task assignment, and an AI-powered assistant for answering questions about tasks and users.
 
-## Tech Stack
+This project uses the MERN stack, with React and TypeScript on the frontend, Node.js and Express.js on the backend, and MongoDB for data storage.
 
+## Features
+
+- User registration and login
+- Task creation, updating, and deletion
+- Task assignment and management
+- Delay tasks with a reason and revised date
+- Track task statuses: Today, Delayed, and Completed
+- Overdue task detection
+- Pagination and filtering
+- Responsive dashboard
+- Admin and user dashboards
+- User management
+- AI-powered task assistant
+- Natural-language questions about tasks, delays, and users
+
+## Technologies Used
+
+### Frontend
 - React.js
 - TypeScript
 - Vite
@@ -17,112 +33,148 @@ The application communicates with a Node.js and MySQL backend API.
 - Axios
 - React Query
 
----
+### Backend
+- Node.js
+- Express.js
+- MongoDB
+- Mongoose
 
-## Features
+### AI Integration
+- Groq-hosted language model through an OpenAI-compatible API
 
-- User registration and login
-- Create, update, and delete tasks
-- Delay tasks with reason and new date
-- Track task status (Today, Delayed, Completed)
-- Overdue task detection
-- Pagination and filtering
-- Responsive dashboard UI
-- Task options menu (update, delay, delete)
+### Development Tools
+- Git and GitHub
+- Visual Studio Code
 
----
+## Project Structure
 
-## Screenshots
+```text
+flowtasks-mern/
+├── backend/
+│   ├── src/
+│   ├── package.json
+│   └── README.md
+├── frontend/
+│   ├── src/
+│   ├── package.json
+│   └── README.md
+├── .gitignore
+└── README.md
+```
 
-### Dashboard
-![Dashboard](./screenshots/Dashboard.png)
+## Prerequisites
 
-### Create Account
-![Create Account](./screenshots/Create-account.png)
+Install the following before running the project:
 
-### Login
-![Login](./screenshots/Login.png)
+- Node.js and npm
+- MongoDB Atlas account or a local MongoDB instance
+- Git
 
-### Create Task
-![Create Task](./screenshots/Create-new-task.png)
+## Installation and Setup
 
-### Delay Task
-![Delay Task](./screenshots/Delay-task.png)
+### 1. Clone the Repository
 
-### Update Task
-![Update Task](./screenshots/Update-task.png)
+```bash
+git clone git@github.com:dandu-vamsi-reddy/flowtasks-mern.git
+cd flowtasks-mern
+```
 
-### Task Options
-![Task Options](./screenshots/Options.png)
+### 2. Configure the Backend
 
----
+Navigate to the backend directory and install dependencies:
 
-## Installation
-
-Clone the repository
-git clone https://github.com/Vamsidhar3081/task-tracker.git
-
-Go to the project folder
-
-
-cd task-tracker
-
-
-Install dependencies
-
-
+```bash
+cd backend
 npm install
+```
 
+Create a `.env` file in the backend directory and configure the environment variables required by your backend.
 
-Run the development server
-
-
-npm run dev
-
-
-The application will run at
-
-
-http://localhost:5173
-
-
----
-
-## Backend API
-
-This frontend connects to the FlowTasks backend API.
-
-Backend repository:  
-https://github.com/Vamsidhar3081/flowtasks-backend
-
----
-
-## Author
-
-Vamsidhar Reddy Dandu
-## AI Task Assistant
-
-The dashboard includes an AI Assistant powered by a Groq-hosted language model. Users can ask natural-language questions about tasks and users, for example:
-
-- Which tasks assigned to Mouser are overdue?
-- Show me all tasks with more than 2 delays.
-- Summarize why the dashboard task got delayed.
-
-The assistant converts the question into structured task filters, queries the backend, and displays readable task results. It supports task lists, status and overdue questions, delay-count conditions, user statistics, and delay summaries.
-
-### AI Configuration
-
-The AI key is used only by the backend and must never be committed to GitHub or exposed as a `VITE_` frontend variable. Configure these variables in the backend hosting provider:
+Example:
 
 ```env
+PORT=5001
+MONGODB_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
 OPENAI_API_KEY=your_groq_api_key
 OPENAI_MODEL=openai/gpt-oss-120b
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 ```
 
-For local development, keep the same values in the backend `.env` file. Configure the deployed backend URL in Vercel as `VITE_API_URL`:
+Replace the example values with your actual local configuration. The variable names must match those used by the backend code.
 
-```env
-VITE_API_URL=https://your-backend-domain.com/api/
+Start the backend using the appropriate script from `backend/package.json`. For example:
+
+```bash
+npm start
 ```
 
+### 3. Configure the Frontend
+
+Open a second terminal and navigate to the frontend:
+
+```bash
+cd frontend
+npm install
+```
+
+Create a `.env` file in the frontend directory if required.
+
+Configure the backend API URL using the variable expected by the frontend:
+
+```env
+VITE_API_URL=http://localhost:5001/api/
+```
+
+Start the frontend:
+
+```bash
+npm run dev
+```
+
+Open the local URL displayed by Vite, usually:
+
+```text
+http://localhost:5173
+```
+
+## AI Assistant
+
+FlowTasks includes an AI assistant that helps users ask natural-language questions about tasks and users.
+
+Example questions include:
+
+- Which tasks assigned to a user are overdue?
+- Show me tasks with more than two delays.
+- Summarize why a task was delayed.
+
+The assistant uses the backend to process questions and retrieve relevant task information.
+
+## AI Development Tool
+
+**Tool Used:** Code0 (Visual Studio Code Extension)
+
+## AI Development Experience
+
+I used Code0 during development to assist with implementation, debugging, and improving the FlowTasks application. It helped me explore solutions to development issues and work through frontend and backend integration challenges.
+
+I reviewed the suggested changes, tested the implementation, and made adjustments where needed.
+
+### Specific Tasks Where I Used Code0
+
+1. **MongoDB Integration:** Assistance with MongoDB connection setup and troubleshooting database-related issues.
+2. **API Development and Debugging:** Assistance with investigating Express.js API errors and request handling.
+3. **Frontend Integration:** Assistance with connecting React components to backend API endpoints.
+4. **Error Handling:** Assistance with debugging application issues and evaluating possible fixes.
+5. **Documentation:** Assistance with organizing project documentation and preparing setup instructions.
+
+## Security
+
+- Do not commit `.env` files.
+- Keep database credentials, API keys, and JWT secrets private.
+- Store AI API keys on the backend, never in frontend environment variables.
+- Configure environment variables separately for local development and deployment.
+
+## Author
+
+Vamsidhar Reddy Dandu

@@ -4,7 +4,7 @@ import { FiAlertCircle } from "react-icons/fi";
 import { getTaskById } from "../api/api";
 
 interface DelayHistory {
-  id: number;
+  id: string;
   reason: string;
   old_date: string;
   new_date: string;
@@ -12,7 +12,7 @@ interface DelayHistory {
 }
 
 interface Task {
-  id: number;
+  id: string;
   title: string;
   description: string;
   status: string;
@@ -36,7 +36,10 @@ const TaskDetails = () => {
   useEffect(() => {
     const fetchTask = async () => {
       try {
-        const data = await getTaskById(Number(id));
+        if (!id) {
+          throw new Error("Task ID is missing");
+        }
+        const data = await getTaskById(id);
         setTask(data as Task);
       } catch (err) {
         console.error(err);
@@ -65,7 +68,7 @@ const TaskDetails = () => {
 
   return (
     // FIX 1: h-screen + flex col + overflow-hidden — fills full viewport, no scroll on outer
-    <div className="h-screen flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(219,234,254,0.65),_rgba(248,250,252,1)_35%,_rgba(255,255,255,1)_100%)]">
+    <div className="premium-task-detail h-screen flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(219,234,254,0.65),_rgba(248,250,252,1)_35%,_rgba(255,255,255,1)_100%)]">
 
       {/* FIX 2: removed max-w-7xl, full width, flex-1 fills remaining height */}
       <div className="flex flex-col gap-3 h-full w-full px-4 sm:px-6 py-4 overflow-hidden">
@@ -84,8 +87,8 @@ const TaskDetails = () => {
           <section className="flex flex-col gap-4 overflow-y-auto min-h-0 pr-1">
 
             <div className="rounded-3xl border border-sky-100 bg-white p-6 shadow-sm shrink-0">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
+              <div className="relative flex items-start gap-4">
+                <div className="min-w-0 flex-1 pr-20 sm:pr-24">
                   <p className="text-xs uppercase tracking-[0.28em] text-sky-500">
                     Task Overview
                   </p>
@@ -96,7 +99,7 @@ const TaskDetails = () => {
                     {task.description || "No description provided"}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
+                <div className="absolute right-0 top-0 flex flex-col items-end gap-2">
                   {task.is_overdue === 1 && (
                     <div className="flex items-center gap-2 text-sm font-medium text-rose-500">
                       <FiAlertCircle />
