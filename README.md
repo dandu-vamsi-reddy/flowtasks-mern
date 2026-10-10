@@ -13,16 +13,42 @@ FlowTasks is a task management and accountability API that allows users to creat
 - JWT Authentication
 - Bcrypt (Password Hashing)
 
-## Setup
+## Features
 
-### 1. Clone the Repository
+- User registration and login
+- Secure password hashing
+- JWT-based authentication
+- Create, update, and delete tasks
+- Delay tasks with a reason and revised date
+- Task status management: Today, Delayed, and Completed
+- Overdue task detection
+- Pagination and filtering
+- MongoDB database integration
+- REST API integration
+- AI-powered task assistant
+
+## Prerequisites
+
+Before running the backend, make sure you have installed:
+
+- Node.js
+- npm
+- A MongoDB database
+- A Groq API key if you want to use the AI assistant
+
+## Installation and Setup
+
+### 1. Navigate to the Backend Directory
+
+If you cloned the repository, navigate to the backend directory:
 
 ```bash
-git clone https://github.com/dandu-vamsi-reddy/flowtasks-mern.git
-cd flowtasks-mern/backend
+cd backend
 ```
 
 ### 2. Install Dependencies
+
+Run the following command:
 
 ```bash
 npm install
@@ -30,7 +56,7 @@ npm install
 
 ### 3. Configure Environment Variables
 
-Create a `.env` file inside the `backend` folder and add the required configuration:
+Create a `.env` file in the backend directory and add your configuration:
 
 ```env
 PORT=5001
@@ -41,47 +67,82 @@ OPENAI_MODEL=openai/gpt-oss-120b
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 ```
 
-Replace the example values with your actual configuration. Use the exact environment variable names expected by your backend code.
+Replace the example values with your actual credentials.
 
 **Important:** Never commit your `.env` file or expose your database credentials, JWT secret, or API keys.
 
-### 4. Run the Server
+Ensure the environment variable names match those used in your backend code.
+
+### 4. Start the Development Server
+
+Run:
 
 ```bash
 npm run dev
 ```
 
-The server runs at:
+The API will run on the port configured in your environment variables. With the example configuration above, the expected address is:
 
 ```text
 http://localhost:5001
 ```
 
-The port may vary depending on your backend configuration.
+### 5. Connect the Frontend
+
+Start the frontend separately and configure its API URL to match the backend address.
+
+Example frontend environment variable:
+
+```env
+VITE_API_URL=http://localhost:5001/api/
+```
+
+Make sure this URL matches the API routes configured in your application.
 
 ## Authentication
 
-- Passwords are hashed using bcrypt.
-- Login returns a signed JWT.
-- Protected routes require `Authorization: Bearer <token>`.
-- Task operations are restricted to the authenticated user where applicable.
+The backend uses JWT-based authentication to protect user-specific resources.
 
-## Core Features
+- User passwords are hashed using bcrypt.
+- Successful login returns a JSON Web Token (JWT).
+- Protected routes require a valid authentication token.
+- Authenticated requests use the following authorization header:
 
-- User Registration and Login
-- Create, Update, and Delete Tasks
-- Delay Tasks with a Reason and Revised Date
-- Task Status Management: Today, Delayed, and Completed
-- Overdue Task Detection
-- Pagination and Filtering
-- REST API Integration
-- MongoDB Database Integration
-- JWT-Based Authentication
-- AI-Powered Task Assistant
+```text
+Authorization: Bearer <token>
+```
+
+- Task operations are restricted according to the application's authentication and authorization logic.
+
+## API Functionality
+
+The backend provides REST API functionality for:
+
+- User registration and login
+- Task creation and management
+- Task status updates
+- Task delays and revised dates
+- Task filtering and pagination
+- AI assistant requests
+
+The available endpoints depend on the routes implemented in the application.
+
+## AI Assistant
+
+FlowTasks includes an AI-powered task assistant.
+
+The frontend sends requests to the backend, which communicates with the configured language model API to process supported AI requests.
+
+The AI assistant can help users interact with task-related information, depending on the functionality implemented in the application.
 
 ## Security
 
-- Passwords are securely hashed.
+- Passwords are hashed before storage.
 - JWT authentication protects private routes.
 - Environment variables are used for sensitive configuration.
-- API keys and database credentials must remain private.
+- Database credentials and API keys should never be committed to GitHub.
+- Protected API endpoints should validate authentication and authorization.
+
+## Author
+
+Vamsidhar Reddy Dandu
