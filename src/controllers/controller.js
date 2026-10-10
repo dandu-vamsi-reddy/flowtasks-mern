@@ -1,76 +1,90 @@
-import bcrypt from "bcrypt";
+﻿import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { db } from "../config/db.js";
+import mongoose from "mongoose";
+import Task from "../models/task.js";
+import TaskDelay from "../models/taskdelay.js";
+import User from "../models/user.js";
 
-const mapTask = (row) => ({
-  id: row.id,
-  title: row.title,
-  description: row.description,
-  status: row.status,
-  feedback_date: row.feedback_date,
-  completed_at: row.completed_at,
-  created_at: row.created_at,
-  updated_at: row.updated_at,
-  created_by: row.created_by,
-  assigned_to: row.assigned_to,
-  creator_name: row.creator_name,
-  assignee_name: row.assignee_name,
-  is_overdue: row.is_overdue,
+const objectId = (value) => new mongoose.Types.ObjectId(value);
+
+const isValidObjectId = (value) => mongoose.isValidObjectId(value);
+
+const mapTask = (task) => ({
+  id: task._id.toString(),
+  title: task.title,
+  description: task.description,
+  status: task.status,
+  feedback_date: task.feedback_date,
+  completed_at: task.completed_at,
+  created_at: task.created_at,
+  updated_at: task.updated_at,
+  created_by: task.created_by?._id?.toString() || task.created_by?.toString(),
+  assigned_to: task.assigned_to?._id?.toString() || task.assigned_to?.toString(),
+  creator_name: task.creator_name || task.created_by?.name,
+  assignee_name: task.assignee_name || task.assigned_to?.name,
+  is_overdue: Number(task.is_overdue),
+});
+
+const mapDelay = (delay) => ({
+  id: delay._id.toString(),
+  old_date: delay.old_date,
+  new_date: delay.new_date,
+  reason: delay.reason,
+  created_at: delay.created_at,
 });
 
 const ensureAssignableUser = async (assignedTo) => {
-  const [users] = await db.query(
-    "SELECT id, role FROM users WHERE id = ?",
-    [assignedTo]
-  );
-
-  if (users.length === 0) {
+  if (!isValidObjectId(assignedTo)) {
     throw new Error("Assigned user not found");
   }
 
-  if (users[0].role !== "USER") {
+  const user = await User.findById(assignedTo).select({ role: 1 }).lean();
+  if (!user) {
+    throw new Error("Assigned user not found");
+  }
+
+  if (user.role !== "USER") {
     throw new Error("Tasks can only be assigned to USER accounts");
   }
 };
 
-const buildTaskScope = (req, values) => {
-  if (req.user.role === "ADMIN") {
-    return "WHERE t.is_deleted = 0";
+const taskScope = (req) => {
+  const filter = { is_deleted: false };
+  if (req.user.role !== "ADMIN") {
+    filter.assigned_to = objectId(req.user.id);
   }
-
-  values.push(req.user.id);
-  return "WHERE t.assigned_to = ? AND t.is_deleted = 0";
+  return filter;
 };
 
-const setCompletedColumns = (status) => {
-  if (status === "COMPLETED") {
-    return "completed_at = NOW()";
-  }
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  return "completed_at = NULL";
+const startOfToday = () => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
 };
+
+const invalidObjectIdResponse = (res, label) =>
+  res.status(400).json({ message: `Invalid ${label} id` });
 
 export const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await User.exists({ email: normalizedEmail });
 
-    const [existing] = await db.query(
-      "SELECT id FROM users WHERE email = ?",
-      [email]
-    );
-
-    if (existing.length > 0) {
+    if (existing) {
       return res.status(400).json({ message: "User already exists" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    await db.query(
-      "INSERT INTO users(name, email, password_hash, role) VALUES (?, ?, ?, 'USER')",
-      [name, email, hashed]
-    );
+    await User.create({ name, email: normalizedEmail, password_hash: hashed, role: "USER" });
 
     return res.status(201).json({ message: "User registered successfully" });
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ message: "User already exists" });
+    }
     return res.status(500).json({
       message: "Something went wrong",
       error: err.message,
@@ -81,24 +95,21 @@ export const registerUser = async (req, res) => {
 export const createUser = async (req, res) => {
   try {
     const { name, email, password, role = "USER" } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await User.exists({ email: normalizedEmail });
 
-    const [existing] = await db.query(
-      "SELECT id FROM users WHERE email = ?",
-      [email]
-    );
-
-    if (existing.length > 0) {
+    if (existing) {
       return res.status(400).json({ message: "User already exists" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    await db.query(
-      "INSERT INTO users(name, email, password_hash, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, role]
-    );
+    await User.create({ name, email: normalizedEmail, password_hash: hashed, role });
 
     return res.status(201).json({ message: "User created successfully" });
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ message: "User already exists" });
+    }
     return res.status(500).json({
       message: "Something went wrong",
       error: err.message,
@@ -108,23 +119,43 @@ export const createUser = async (req, res) => {
 
 export const getUsers = async (_req, res) => {
   try {
-    const [users] = await db.query(
-      `SELECT
-         u.id,
-         u.name,
-         u.email,
-         u.role,
-         u.created_at,
-         COUNT(CASE WHEN t.is_deleted = 0 THEN 1 END) AS total_tasks,
-         COUNT(CASE WHEN t.is_deleted = 0 AND t.status = 'ONGOING' THEN 1 END) AS ongoing_tasks
-       FROM users u
-       LEFT JOIN tasks t ON t.assigned_to = u.id
-       WHERE u.role = 'USER'
-       GROUP BY u.id, u.name, u.email, u.role, u.created_at
-       ORDER BY u.created_at DESC`
-    );
+    const users = await User.find({ role: "USER" })
+      .select({ name: 1, email: 1, role: 1, created_at: 1 })
+      .sort({ created_at: -1 })
+      .lean();
+    const taskCounts = await Task.aggregate([
+      {
+        $match: {
+          is_deleted: false,
+          assigned_to: { $in: users.map((user) => user._id) },
+        },
+      },
+      {
+        $group: {
+          _id: "$assigned_to",
+          total_tasks: { $sum: 1 },
+          ongoing_tasks: {
+            $sum: { $cond: [{ $eq: ["$status", "ONGOING"] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+    const countsByUser = new Map(taskCounts.map((item) => [item._id.toString(), item]));
 
-    return res.json({ users });
+    return res.json({
+      users: users.map((user) => {
+        const counts = countsByUser.get(user._id.toString());
+        return {
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          created_at: user.created_at,
+          total_tasks: counts?.total_tasks || 0,
+          ongoing_tasks: counts?.ongoing_tasks || 0,
+        };
+      }),
+    });
   } catch (err) {
     return res.status(500).json({
       message: "Something went wrong",
@@ -134,89 +165,67 @@ export const getUsers = async (_req, res) => {
 };
 
 export const deleteUser = async (req, res) => {
-  const connection = await db.getConnection();
-
-  try {
-    const userId = Number(req.params.userId);
-
-    if (Number.isNaN(userId)) {
-      return res.status(400).json({ message: "Invalid user id" });
-    }
-
-    if (userId === req.user.id) {
-      return res.status(400).json({ message: "You cannot delete your own account" });
-    }
-
-    const [users] = await connection.query(
-      "SELECT id, role FROM users WHERE id = ?",
-      [userId]
-    );
-
-    if (users.length === 0) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    if (users[0].role === "ADMIN") {
-      return res.status(400).json({ message: "Admin accounts cannot be deleted" });
-    }
-
-    await connection.beginTransaction();
-
-    const [tasks] = await connection.query(
-      "SELECT id FROM tasks WHERE created_by = ? OR assigned_to = ?",
-      [userId, userId]
-    );
-
-    const taskIds = tasks.map((task) => task.id);
-
-    if (taskIds.length > 0) {
-      await connection.query(
-        `DELETE FROM task_delays WHERE task_id IN (${taskIds.map(() => "?").join(",")})`,
-        taskIds
-      );
-
-      await connection.query(
-        "DELETE FROM tasks WHERE created_by = ? OR assigned_to = ?",
-        [userId, userId]
-      );
-    }
-
-    await connection.query("DELETE FROM users WHERE id = ?", [userId]);
-    await connection.commit();
-
-    return res.json({ message: "User deleted successfully" });
-  } catch (err) {
-    await connection.rollback();
-    return res.status(500).json({
-      message: "Something went wrong",
-      error: err.message,
-    });
-  } finally {
-    connection.release();
+  const userId = req.params.userId;
+  if (!isValidObjectId(userId)) {
+    return invalidObjectIdResponse(res, "user");
   }
+
+  if (userId.toLowerCase() !== req.user.id.toLowerCase()) {
+    try {
+      const user = await User.findById(userId).select({ role: 1 }).lean();
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (user.role === "ADMIN") {
+        return res.status(400).json({ message: "Admin accounts cannot be deleted" });
+      }
+
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          const taskIds = await Task.find({
+            $or: [{ created_by: objectId(userId) }, { assigned_to: objectId(userId) }],
+          })
+            .select({ _id: 1 })
+            .session(session)
+            .lean();
+          const ids = taskIds.map((task) => task._id);
+          if (ids.length > 0) {
+            await TaskDelay.deleteMany({ task_id: { $in: ids } }, { session });
+            await Task.deleteMany({ _id: { $in: ids } }, { session });
+          }
+          await User.deleteOne({ _id: objectId(userId) }, { session });
+        });
+      } finally {
+        await session.endSession();
+      }
+
+      return res.json({ message: "User deleted successfully" });
+    } catch (err) {
+      return res.status(500).json({
+        message: "Something went wrong",
+        error: err.message,
+      });
+    }
+  }
+
+  return res.status(400).json({ message: "You cannot delete your own account" });
 };
 
 export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const [users] = await db.query(
-      "SELECT id, name, email, role, password_hash FROM users WHERE email = ?",
-      [email]
-    );
+    const user = await User.findOne({ email: email.trim().toLowerCase() })
+      .select({ name: 1, email: 1, role: 1, password_hash: 1 })
+      .lean();
 
-    if (users.length === 0) {
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const user = users[0];
-    const match = await bcrypt.compare(password, user.password_hash);
-
-    if (!match) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
+    const userId = user._id.toString();
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      { userId, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
@@ -225,7 +234,7 @@ export const loginUser = async (req, res) => {
       token,
       role: user.role,
       user: {
-        id: user.id,
+        id: userId,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -242,25 +251,27 @@ export const loginUser = async (req, res) => {
 export const createTask = async (req, res) => {
   try {
     const { title, description, feedback_date, status = "ONGOING", assignedTo } = req.body;
-    const creatorId = req.user.id;
-
+    const creatorId = objectId(req.user.id);
     let assigneeId = creatorId;
 
     if (req.user.role === "ADMIN" && assignedTo) {
       await ensureAssignableUser(assignedTo);
-      assigneeId = assignedTo;
+      assigneeId = objectId(assignedTo);
     }
 
-    const [result] = await db.query(
-      `INSERT INTO tasks
-         (title, description, feedback_date, status, completed_at, created_by, assigned_to)
-       VALUES (?, ?, ?, ?, ${status === "COMPLETED" ? "NOW()" : "NULL"}, ?, ?)`,
-      [title, description, feedback_date, status, creatorId, assigneeId]
-    );
+    const task = await Task.create({
+      title,
+      description,
+      feedback_date,
+      status,
+      completed_at: status === "COMPLETED" ? new Date() : null,
+      created_by: creatorId,
+      assigned_to: assigneeId,
+    });
 
     return res.status(201).json({
       message: "Task created successfully",
-      taskId: result.insertId,
+      taskId: task._id.toString(),
     });
   } catch (err) {
     const statusCode =
@@ -278,81 +289,122 @@ export const createTask = async (req, res) => {
 export const getTasks = async (req, res) => {
   try {
     const { date, status, search, filter, assignedTo, page = 1, limit = 10 } = req.query;
-
-    const pageNum = Math.max(parseInt(page, 10), 1);
-    const limitNum = Math.min(parseInt(limit, 10), 100);
-    const offset = (pageNum - 1) * limitNum;
-
-    const values = [];
-    let baseSql = `
-      FROM tasks t
-      INNER JOIN users creator ON creator.id = t.created_by
-      INNER JOIN users assignee ON assignee.id = t.assigned_to
-    `;
-
-    baseSql += ` ${buildTaskScope(req, values)}`;
+    const pageNum = Math.max(Number.parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 100);
+    const match = taskScope(req);
 
     if (req.user.role === "ADMIN" && assignedTo) {
-      baseSql += " AND t.assigned_to = ?";
-      values.push(assignedTo);
+      if (!isValidObjectId(assignedTo)) {
+        return invalidObjectIdResponse(res, "user");
+      }
+      match.assigned_to = objectId(assignedTo);
     }
-
-    if (status) {
-      baseSql += " AND t.status = ?";
-      values.push(status);
-    }
-
+    if (status) match.status = status;
     if (date) {
-      baseSql += " AND t.created_at >= ? AND t.created_at < DATE_ADD(?, INTERVAL 1 DAY)";
-      values.push(date, date);
+      const startDate = new Date(`${date}T00:00:00`);
+      if (!Number.isNaN(startDate.getTime())) {
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 1);
+        match.created_at = { $gte: startDate, $lt: endDate };
+      }
     }
+    if (filter === "overdue") {
+      match.$and = [
+        { status: { $ne: "COMPLETED" } },
+        { feedback_date: { $lt: startOfToday() } },
+      ];
+    }
+
+    const pipeline = [
+      { $match: match },
+      {
+        $lookup: {
+          from: User.collection.name,
+          localField: "created_by",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      { $unwind: "$creator" },
+      {
+        $lookup: {
+          from: User.collection.name,
+          localField: "assigned_to",
+          foreignField: "_id",
+          as: "assignee",
+        },
+      },
+      { $unwind: "$assignee" },
+    ];
 
     if (search) {
-      baseSql += " AND (t.title LIKE ? OR t.description LIKE ? OR assignee.name LIKE ?)";
-      const keyword = `%${search}%`;
-      values.push(keyword, keyword, keyword);
+      const searchPattern = new RegExp(escapeRegex(search), "i");
+      pipeline.push({
+        $match: {
+          $or: [
+            { title: searchPattern },
+            { description: searchPattern },
+            { "assignee.name": searchPattern },
+          ],
+        },
+      });
     }
 
-    if (filter === "overdue") {
-      baseSql += " AND t.status != 'COMPLETED' AND t.feedback_date < CURDATE()";
-    }
+    pipeline.push({
+      $facet: {
+        meta: [{ $count: "total" }],
+        tasks: [
+          { $sort: { created_at: -1 } },
+          { $skip: (pageNum - 1) * limitNum },
+          { $limit: limitNum },
+          {
+            $addFields: {
+              creator_name: "$creator.name",
+              assignee_name: "$assignee.name",
+              is_overdue: {
+                $cond: [
+                  {
+                    $and: [
+                      { $ne: ["$status", "COMPLETED"] },
+                      { $lt: ["$feedback_date", startOfToday()] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              title: 1,
+              description: 1,
+              status: 1,
+              feedback_date: 1,
+              completed_at: 1,
+              created_at: 1,
+              updated_at: 1,
+              created_by: 1,
+              assigned_to: 1,
+              creator_name: 1,
+              assignee_name: 1,
+              is_overdue: 1,
+            },
+          },
+        ],
+      },
+    });
 
-    const [countRows] = await db.query(
-      `SELECT COUNT(*) AS total ${baseSql}`,
-      values
-    );
-
-    const [task] = await db.query(
-      `SELECT
-         t.id,
-         t.title,
-         t.description,
-         t.status,
-         t.feedback_date,
-         t.created_at,
-         t.updated_at,
-         t.created_by,
-         t.assigned_to,
-         creator.name AS creator_name,
-         assignee.name AS assignee_name,
-         CASE
-           WHEN t.status != 'COMPLETED' AND t.feedback_date < CURDATE() THEN 1
-           ELSE 0
-         END AS is_overdue
-       ${baseSql}
-       ORDER BY t.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...values, limitNum, offset]
-    );
-
+    const [result] = await Task.aggregate(pipeline);
+    const total = result.meta[0]?.total || 0;
     return res.json({
       meta: {
-        total: countRows[0].total,
+        total,
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(countRows[0].total / limitNum) || 1,
+        totalPages: Math.ceil(total / limitNum) || 1,
       },
-      task: task.map(mapTask),
+      task: result.tasks.map(mapTask),
     });
   } catch (err) {
     return res.status(500).json({
@@ -364,68 +416,42 @@ export const getTasks = async (req, res) => {
 
 export const updateTask = async (req, res) => {
   try {
-    const taskId = Number(req.params.taskId);
+    const taskId = req.params.taskId;
     const { title, description, feedback_date, status, assignedTo } = req.body;
-
-    if (Number.isNaN(taskId)) {
-      return res.status(400).json({ message: "Invalid task id" });
+    if (!isValidObjectId(taskId)) {
+      return invalidObjectIdResponse(res, "task");
     }
 
-    const [tasks] = await db.query(
-      `SELECT id, assigned_to
-       FROM tasks
-       WHERE id = ? AND is_deleted = 0`,
-      [taskId]
-    );
-
-    if (tasks.length === 0) {
+    const task = await Task.findOne({ _id: taskId, is_deleted: false })
+      .select({ assigned_to: 1 })
+      .lean();
+    if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-
-    if (req.user.role !== "ADMIN" && tasks[0].assigned_to !== req.user.id) {
+    if (req.user.role !== "ADMIN" && task.assigned_to.toString() !== req.user.id) {
       return res.status(403).json({ message: "You cannot edit this task" });
     }
 
-    const fields = [];
-    const values = [];
-
-    if (title !== undefined) {
-      fields.push("title = ?");
-      values.push(title);
-    }
-
-    if (description !== undefined) {
-      fields.push("description = ?");
-      values.push(description);
-    }
-
-    if (feedback_date !== undefined) {
-      fields.push("feedback_date = ?");
-      values.push(feedback_date);
-    }
-
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (feedback_date !== undefined) updates.feedback_date = feedback_date;
     if (status !== undefined) {
-      fields.push("status = ?");
-      values.push(status);
-      fields.push(setCompletedColumns(status));
+      updates.status = status;
+      updates.completed_at = status === "COMPLETED" ? new Date() : null;
     }
-
     if (req.user.role === "ADMIN" && assignedTo !== undefined) {
       await ensureAssignableUser(assignedTo);
-      fields.push("assigned_to = ?");
-      values.push(assignedTo);
+      updates.assigned_to = objectId(assignedTo);
     }
-
-    if (fields.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: "No fields to update" });
     }
 
-    values.push(taskId);
-    await db.query(
-      `UPDATE tasks
-       SET ${fields.join(", ")}, updated_at = NOW()
-       WHERE id = ? AND is_deleted = 0`,
-      values
+    await Task.updateOne(
+      { _id: taskId, is_deleted: false },
+      { $set: updates },
+      { runValidators: true }
     );
 
     return res.json({ message: "Task updated successfully" });
@@ -443,96 +469,88 @@ export const updateTask = async (req, res) => {
 };
 
 export const delayTask = async (req, res) => {
-  const connection = await db.getConnection();
+  const taskId = req.params.taskId;
+  if (!isValidObjectId(taskId)) {
+    return invalidObjectIdResponse(res, "task");
+  }
 
+  const { reason, newDate } = req.body;
+  let response;
+  const session = await mongoose.startSession();
   try {
-    const taskId = Number(req.params.taskId);
-    const { reason, newDate } = req.body;
+    await session.withTransaction(async () => {
+      const task = await Task.findOne({ _id: taskId, is_deleted: false }).session(session);
+      if (!task) {
+        response = { status: 404, message: "Task not found" };
+        return;
+      }
+      if (req.user.role !== "ADMIN" && task.assigned_to.toString() !== req.user.id) {
+        response = { status: 403, message: "You cannot delay this task" };
+        return;
+      }
+      if (task.status === "COMPLETED") {
+        response = { status: 400, message: "Cannot delay a completed task" };
+        return;
+      }
+      if (!task.feedback_date) {
+        response = { status: 400, message: "Cannot delay a task without a feedback date" };
+        return;
+      }
+      if (new Date(newDate) <= new Date(task.feedback_date)) {
+        response = { status: 400, message: "New date must be greater than current feedback date" };
+        return;
+      }
 
-    const [tasks] = await connection.query(
-      "SELECT id, feedback_date, status, assigned_to FROM tasks WHERE id = ? AND is_deleted = 0",
-      [taskId]
-    );
-
-    if (tasks.length === 0) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
-    const task = tasks[0];
-
-    if (req.user.role !== "ADMIN" && task.assigned_to !== req.user.id) {
-      return res.status(403).json({ message: "You cannot delay this task" });
-    }
-
-    if (task.status === "COMPLETED") {
-      return res.status(400).json({ message: "Cannot delay a completed task" });
-    }
-
-    if (!task.feedback_date) {
-      return res.status(400).json({ message: "Cannot delay a task without a feedback date" });
-    }
-
-    if (new Date(newDate) <= new Date(task.feedback_date)) {
-      return res.status(400).json({ message: "New date must be greater than current feedback date" });
-    }
-
-    await connection.beginTransaction();
-
-    await connection.query(
-      `INSERT INTO task_delays (task_id, old_date, new_date, reason)
-       VALUES (?, ?, ?, ?)`,
-      [taskId, task.feedback_date, newDate, reason]
-    );
-
-    await connection.query(
-      `UPDATE tasks
-       SET status = 'DELAYED', feedback_date = ?, completed_at = NULL, updated_at = NOW()
-       WHERE id = ? AND is_deleted = 0`,
-      [newDate, taskId]
-    );
-
-    await connection.commit();
-    return res.json({ message: "Task delayed successfully" });
+      await TaskDelay.create(
+        [{
+          task_id: task._id,
+          old_date: task.feedback_date,
+          new_date: new Date(newDate),
+          reason,
+        }],
+        { session }
+      );
+      task.status = "DELAYED";
+      task.feedback_date = new Date(newDate);
+      task.completed_at = null;
+      await task.save({ session });
+      response = { status: 200, message: "Task delayed successfully" };
+    });
   } catch (err) {
-    await connection.rollback();
     return res.status(500).json({
       message: "Something went wrong",
       error: err.message,
     });
   } finally {
-    connection.release();
+    await session.endSession();
   }
+  return res.status(response.status).json({ message: response.message });
 };
 
 export const completeTask = async (req, res) => {
   try {
-    const taskId = Number(req.params.taskId);
-    const [tasks] = await db.query(
-      "SELECT id, status, assigned_to FROM tasks WHERE id = ? AND is_deleted = 0",
-      [taskId]
-    );
+    const taskId = req.params.taskId;
+    if (!isValidObjectId(taskId)) {
+      return invalidObjectIdResponse(res, "task");
+    }
 
-    if (tasks.length === 0) {
+    const task = await Task.findOne({ _id: taskId, is_deleted: false })
+      .select({ status: 1, assigned_to: 1 })
+      .lean();
+    if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-
-    const task = tasks[0];
-
-    if (req.user.role !== "ADMIN" && task.assigned_to !== req.user.id) {
+    if (req.user.role !== "ADMIN" && task.assigned_to.toString() !== req.user.id) {
       return res.status(403).json({ message: "You cannot complete this task" });
     }
-
     if (task.status === "COMPLETED") {
       return res.status(400).json({ message: "Task is already completed" });
     }
 
-    await db.query(
-      `UPDATE tasks
-       SET status = 'COMPLETED', completed_at = NOW(), updated_at = NOW()
-       WHERE id = ? AND is_deleted = 0`,
-      [taskId]
+    await Task.updateOne(
+      { _id: taskId, is_deleted: false },
+      { $set: { status: "COMPLETED", completed_at: new Date() } }
     );
-
     return res.json({ message: "Task completed successfully" });
   } catch (err) {
     return res.status(500).json({
@@ -544,32 +562,25 @@ export const completeTask = async (req, res) => {
 
 export const deleteTask = async (req, res) => {
   try {
-    const taskId = Number(req.params.taskId);
-
-    if (Number.isNaN(taskId)) {
-      return res.status(400).json({ message: "Invalid task id" });
+    const taskId = req.params.taskId;
+    if (!isValidObjectId(taskId)) {
+      return invalidObjectIdResponse(res, "task");
     }
 
-    const [tasks] = await db.query(
-      "SELECT id, assigned_to FROM tasks WHERE id = ? AND is_deleted = 0",
-      [taskId]
-    );
-
-    if (tasks.length === 0) {
+    const task = await Task.findOne({ _id: taskId, is_deleted: false })
+      .select({ assigned_to: 1 })
+      .lean();
+    if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-
-    if (req.user.role !== "ADMIN" && tasks[0].assigned_to !== req.user.id) {
+    if (req.user.role !== "ADMIN" && task.assigned_to.toString() !== req.user.id) {
       return res.status(403).json({ message: "You cannot delete this task" });
     }
 
-    await db.query(
-      `UPDATE tasks
-       SET is_deleted = TRUE, deleted_at = NOW(), updated_at = NOW()
-       WHERE id = ?`,
-      [taskId]
+    await Task.updateOne(
+      { _id: taskId, is_deleted: false },
+      { $set: { is_deleted: true, deleted_at: new Date() } }
     );
-
     return res.json({ message: "Task deleted successfully" });
   } catch (err) {
     return res.status(500).json({
@@ -581,59 +592,37 @@ export const deleteTask = async (req, res) => {
 
 export const getTaskById = async (req, res) => {
   try {
-    const taskId = Number(req.params.taskId);
-
-    if (Number.isNaN(taskId)) {
-      return res.status(400).json({ message: "Invalid task id" });
+    const taskId = req.params.taskId;
+    if (!isValidObjectId(taskId)) {
+      return invalidObjectIdResponse(res, "task");
     }
 
-    const [tasks] = await db.query(
-      `SELECT
-         t.id,
-         t.title,
-         t.description,
-         t.feedback_date,
-         t.status,
-         t.completed_at,
-         t.created_at,
-         t.updated_at,
-         t.created_by,
-         t.assigned_to,
-         creator.name AS creator_name,
-         assignee.name AS assignee_name,
-         CASE
-           WHEN t.status != 'COMPLETED' AND t.feedback_date < CURDATE() THEN 1
-           ELSE 0
-         END AS is_overdue
-       FROM tasks t
-       INNER JOIN users creator ON creator.id = t.created_by
-       INNER JOIN users assignee ON assignee.id = t.assigned_to
-       WHERE t.id = ? AND t.is_deleted = 0`,
-      [taskId]
-    );
-
-    if (tasks.length === 0) {
+    const task = await Task.findOne({ _id: taskId, is_deleted: false })
+      .populate("created_by", "name")
+      .populate("assigned_to", "name")
+      .lean();
+    if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-
-    const task = tasks[0];
-
-    if (req.user.role !== "ADMIN" && task.assigned_to !== req.user.id) {
+    if (req.user.role !== "ADMIN" && task.assigned_to._id.toString() !== req.user.id) {
       return res.status(403).json({ message: "You cannot view this task" });
     }
 
-    const [delays] = await db.query(
-      `SELECT id, old_date, new_date, reason, created_at
-       FROM task_delays
-       WHERE task_id = ?
-       ORDER BY created_at DESC`,
-      [taskId]
-    );
+    const delays = await TaskDelay.find({ task_id: task._id })
+      .sort({ created_at: -1 })
+      .lean();
+    const today = startOfToday();
+    const mappedTask = mapTask({
+      ...task,
+      creator_name: task.created_by.name,
+      assignee_name: task.assigned_to.name,
+      is_overdue: task.status !== "COMPLETED" && task.feedback_date < today ? 1 : 0,
+    });
 
     return res.json({
-      ...mapTask(task),
+      ...mappedTask,
       delay_count: delays.length,
-      delays,
+      delays: delays.map(mapDelay),
     });
   } catch (err) {
     return res.status(500).json({

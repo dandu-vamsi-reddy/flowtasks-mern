@@ -1,5 +1,8 @@
-import OpenAI from "openai";
-import { db } from "../config/db.js";
+﻿import OpenAI from "openai";
+import mongoose from "mongoose";
+import Task from "../models/task.js";
+import TaskDelay from "../models/taskdelay.js";
+import User from "../models/user.js";
 
 const INTENTS = [
   "LIST_TASKS",
@@ -45,6 +48,8 @@ const mentionsUser = (question, name) => {
   return new RegExp(`(^|\\W)${escaped}(?=$|\\W)`, "i").test(question);
 };
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const resolveUser = (requestedName, users) => {
   if (!requestedName) return { user: null };
   const input = normalize(requestedName);
@@ -65,24 +70,23 @@ const resolveUser = (requestedName, users) => {
 };
 
 const visibleUsers = async (req) => {
-  if (req.user.role === "ADMIN") {
-    const [users] = await db.query("SELECT id, name FROM users WHERE role = 'USER' ORDER BY name");
-    return users;
-  }
-  const [users] = await db.query("SELECT id, name FROM users WHERE id = ?", [req.user.id]);
-  return users;
+  const filter = req.user.role === "ADMIN"
+    ? { role: "USER" }
+    : { _id: new mongoose.Types.ObjectId(req.user.id) };
+  const users = await User.find(filter).select({ name: 1 }).sort({ name: 1 }).lean();
+  return users.map((user) => ({ id: user._id.toString(), name: user.name }));
 };
 
-const accessScope = (req, values) => {
-  if (req.user.role === "ADMIN") return "t.is_deleted = 0";
-  values.push(req.user.id);
-  return "t.is_deleted = 0 AND t.assigned_to = ?";
+const accessScope = (req) => {
+  const filter = { is_deleted: false };
+  if (req.user.role !== "ADMIN") {
+    filter.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+  }
+  return filter;
 };
 
 const inferTaskTitle = async (req, question) => {
-  const values = [];
-  const where = accessScope(req, values);
-  const [rows] = await db.query(`SELECT t.id, t.title FROM tasks t WHERE ${where} LIMIT 1000`, values);
+  const rows = await Task.find(accessScope(req)).select({ title: 1 }).limit(1000).lean();
   const normalizedQuestion = normalize(question);
   return rows
     .filter((row) => normalizedQuestion.includes(normalize(row.title)))
@@ -90,7 +94,7 @@ const inferTaskTitle = async (req, question) => {
 };
 
 const taskDto = (task) => ({
-  id: task.id,
+  id: task._id?.toString() || task.id,
   title: task.title,
   description: task.description,
   status: task.status,
@@ -119,35 +123,85 @@ const interpret = async (question, users) => {
   return JSON.parse(response.output_text);
 };
 
-const listTasks = async (req, { overdue = false, assigneeId, assigneeIds, minDelays, delayOperator = ">", status, title }) => {
-  const values = [];
-  let where = accessScope(req, values);
-  if (overdue) where += " AND t.status != 'COMPLETED' AND t.feedback_date < CURDATE()";
-  if (assigneeId) { where += " AND t.assigned_to = ?"; values.push(assigneeId); }
-  if (Array.isArray(assigneeIds) && assigneeIds.length > 0) { where += ` AND t.assigned_to IN (${assigneeIds.map(() => "?").join(",")})`; values.push(...assigneeIds); }
-  if (status) { where += " AND t.status = ?"; values.push(status); }
-  if (title) { where += " AND (t.title LIKE ? OR t.description LIKE ?)"; values.push(`%${title}%`, `%${title}%`); }
-  let having = "";
+const listTasks = async (req, {
+  overdue = false,
+  assigneeId,
+  assigneeIds,
+  minDelays,
+  delayOperator = ">",
+  status,
+  title,
+  titleOnly = false,
+  sort = { feedback_date: 1 },
+  limit = 100,
+}) => {
+  const match = accessScope(req);
+  const assigneeFilters = [];
+  if (overdue) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    match.status = { $ne: "COMPLETED" };
+    match.feedback_date = { $lt: startOfToday };
+  }
+  if (assigneeId) assigneeFilters.push({ assigned_to: new mongoose.Types.ObjectId(assigneeId) });
+  if (Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+    assigneeFilters.push({ assigned_to: { $in: assigneeIds.map((id) => new mongoose.Types.ObjectId(id)) } });
+  }
+  if (assigneeFilters.length > 0) match.$and = assigneeFilters;
+  if (status) match.status = status;
+  if (title) {
+    const titlePattern = new RegExp(escapeRegex(title), "i");
+    if (titleOnly) match.title = titlePattern;
+    else match.$or = [{ title: titlePattern }, { description: titlePattern }];
+  }
+
+  const pipeline = [
+    { $match: match },
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "assigned_to",
+        foreignField: "_id",
+        as: "assignee",
+      },
+    },
+    { $unwind: "$assignee" },
+    {
+      $lookup: {
+        from: TaskDelay.collection.name,
+        localField: "_id",
+        foreignField: "task_id",
+        as: "delays",
+      },
+    },
+    { $addFields: { delay_count: { $size: "$delays" } } },
+  ];
+
   if (Number.isInteger(minDelays)) {
     const safeOperator = [">", "<", ">=", "<=", "="].includes(delayOperator) ? delayOperator : ">";
-    having = ` HAVING COUNT(d.id) ${safeOperator} ?`;
-    values.push(minDelays);
+    const mongoOperator = { ">": "$gt", "<": "$lt", ">=": "$gte", "<=": "$lte", "=": "$eq" }[safeOperator];
+    pipeline.push({ $match: { delay_count: { [mongoOperator]: minDelays } } });
   }
-  console.log("AI SQL task filter:", { overdue, assigneeId, assigneeIds, minDelays, status, title });
-
-  const [tasks] = await db.query(
-    `SELECT t.id, t.title, t.description, t.status, t.feedback_date, assignee.name AS assignee_name, COUNT(d.id) AS delay_count
-     FROM tasks t
-     INNER JOIN users assignee ON assignee.id = t.assigned_to
-     LEFT JOIN task_delays d ON d.task_id = t.id
-     WHERE ${where}
-     GROUP BY t.id, t.title, t.description, t.status, t.feedback_date, assignee.name
-     ${having}
-     ORDER BY t.feedback_date ASC LIMIT 100`,
-    values
+  pipeline.push(
+    { $sort: sort },
+    { $limit: limit },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        description: 1,
+        status: 1,
+        feedback_date: 1,
+        assignee_name: "$assignee.name",
+        delay_count: 1,
+      },
+    }
   );
+  console.log("AI MongoDB task filter:", { overdue, assigneeId, assigneeIds, minDelays, status, title });
+
+  const tasks = await Task.aggregate(pipeline);
   const result = tasks.map(taskDto);
-  console.log("AI SQL task result counts:", result.map(({ id, title, delay_count }) => ({ id, title, delay_count })));
+  console.log("AI MongoDB task result counts:", result.map(({ id, title, delay_count }) => ({ id, title, delay_count })));
   return result;
 };
 
@@ -234,23 +288,20 @@ export const queryTasksWithAI = async (req, res) => {
       return res.status(404).json({ message: "Please include the task title you want summarized." });
     }
 
-    const values = [];
-    let where = accessScope(req, values);
-    where += " AND t.title LIKE ?";
-    values.push(`%${parsed.task_title || ""}%`);
-    const [tasks] = await db.query(
-      `SELECT t.id, t.title, t.description, t.status, t.feedback_date, assignee.name AS assignee_name, COUNT(d.id) AS delay_count
-       FROM tasks t INNER JOIN users assignee ON assignee.id = t.assigned_to LEFT JOIN task_delays d ON d.task_id = t.id
-       WHERE ${where}
-       GROUP BY t.id, t.title, t.description, t.status, t.feedback_date, assignee.name
-       ORDER BY t.updated_at DESC LIMIT 4`,
-      values
-    );
+    const tasks = await listTasks(req, {
+      title: parsed.task_title || "",
+      titleOnly: true,
+      sort: { updated_at: -1 },
+      limit: 4,
+    });
     if (tasks.length === 0) return res.status(404).json({ message: "No matching task was found." });
-    if (tasks.length > 1) return res.status(409).json({ message: "I found multiple matching tasks.", tasks: tasks.map(taskDto) });
+    if (tasks.length > 1) return res.status(409).json({ message: "I found multiple matching tasks.", tasks });
 
-    const [delays] = await db.query("SELECT old_date, new_date, reason, created_at FROM task_delays WHERE task_id = ? ORDER BY created_at ASC", [tasks[0].id]);
-    return res.json({ intent: parsed.intent, task: taskDto(tasks[0]), delays, summary: await summarize(tasks[0], delays) });
+    const delays = await TaskDelay.find({ task_id: tasks[0].id })
+      .select({ _id: 0, old_date: 1, new_date: 1, reason: 1, created_at: 1 })
+      .sort({ created_at: 1 })
+      .lean();
+    return res.json({ intent: parsed.intent, task: tasks[0], delays, summary: await summarize(tasks[0], delays) });
   } catch (error) {
     console.error("AI task query failed", {
       message: error?.message,
